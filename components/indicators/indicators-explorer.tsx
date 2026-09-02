@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { ArrowDownRight, ArrowUpRight, Database, Minus } from "lucide-react"
 
 import { IndicatorChart } from "@/components/indicators/indicator-chart"
@@ -13,15 +13,73 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import type { Indicator } from "@/lib/domain/indicators"
+import type { Indicator, Observation } from "@/lib/domain/indicators"
 import { summarizeIndicator } from "@/lib/domain/indicators"
 import { formatNumber, formatSigned, formatTimestamp } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 
+const OBSERVATION_TABLE_LIMIT = 500
+
+interface ObservationResponse {
+  observations?: Observation[]
+  error?: string
+}
+
 export function IndicatorsExplorer({ indicators }: { indicators: Indicator[] }) {
   const summaries = useMemo(() => indicators.map(summarizeIndicator), [indicators])
   const [selectedId, setSelectedId] = useState(summaries[0]?.id ?? "")
-  const selected = summaries.find(({ id }) => id === selectedId) ?? summaries[0]
+  const [loadedDetail, setLoadedDetail] = useState<{
+    indicatorId: string
+    observations: Observation[]
+  } | null>(null)
+  const [loadingId, setLoadingId] = useState<string | null>(
+    summaries[0]?.id ?? null
+  )
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const selectedSummary =
+    summaries.find(({ id }) => id === selectedId) ?? summaries[0]
+  const selected = selectedSummary
+    ? summarizeIndicator({
+        ...selectedSummary,
+        observations:
+          loadedDetail?.indicatorId === selectedSummary.id
+            ? loadedDetail.observations
+            : selectedSummary.observations,
+      })
+    : undefined
+  const isLoading = loadingId === selectedId
+
+  useEffect(() => {
+    if (!selectedId || loadedDetail?.indicatorId === selectedId) return
+
+    const controller = new AbortController()
+
+    void fetch(`/api/indicators/${encodeURIComponent(selectedId)}/observations`, {
+      signal: controller.signal,
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        const payload = (await response.json()) as ObservationResponse
+        if (!response.ok || !payload.observations) {
+          throw new Error(payload.error ?? "Unable to load observations.")
+        }
+        setLoadedDetail({
+          indicatorId: selectedId,
+          observations: payload.observations,
+        })
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setLoadError(
+          error instanceof Error ? error.message : "Unable to load observations."
+        )
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingId(null)
+      })
+
+    return () => controller.abort()
+  }, [loadedDetail?.indicatorId, selectedId])
 
   if (!selected) {
     return <Card><CardContent className="py-12 text-center">No indicators found.</CardContent></Card>
@@ -39,9 +97,12 @@ export function IndicatorsExplorer({ indicators }: { indicators: Indicator[] }) 
   const hasBuyVolume = selected.observations.some(
     (observation) => observation.buyVolume !== null
   )
+  const visibleObservations = selected.observations.slice(
+    -OBSERVATION_TABLE_LIMIT
+  )
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="grid gap-5 xl:grid-cols-[22.5rem_minmax(0,1fr)]">
       <Card className="h-fit">
         <CardHeader className="border-b">
           <CardTitle>Tracked indicators</CardTitle>
@@ -52,7 +113,15 @@ export function IndicatorsExplorer({ indicators }: { indicators: Indicator[] }) 
             <button
               key={indicator.id}
               type="button"
-              onClick={() => setSelectedId(indicator.id)}
+              onClick={() => {
+                setSelectedId(indicator.id)
+                setLoadingId(
+                  loadedDetail?.indicatorId === indicator.id
+                    ? null
+                    : indicator.id
+                )
+                setLoadError(null)
+              }}
               className={cn(
                 "flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/70",
                 selected.id === indicator.id && "bg-muted"
@@ -117,11 +186,31 @@ export function IndicatorsExplorer({ indicators }: { indicators: Indicator[] }) 
                 <TabsTrigger value="metadata">Metadata</TabsTrigger>
               </TabsList>
               <TabsContent value="chart" className="pt-4">
-                <IndicatorChart key={selected.id} indicator={selected} />
+                {isLoading ? (
+                  <div className="flex h-80 items-center justify-center text-sm text-muted-foreground">
+                    Loading complete history…
+                  </div>
+                ) : loadError ? (
+                  <div className="flex h-80 items-center justify-center text-sm text-destructive">
+                    {loadError}
+                  </div>
+                ) : (
+                  <IndicatorChart key={selected.id} indicator={selected} />
+                )}
               </TabsContent>
               <TabsContent value="observations" className="pt-4">
-                <div className="max-h-80 overflow-auto rounded-lg border">
-                  <table className="w-full min-w-[620px] text-sm">
+                {isLoading ? (
+                  <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+                    Loading observations…
+                  </div>
+                ) : loadError ? (
+                  <div className="flex h-40 items-center justify-center text-sm text-destructive">
+                    {loadError}
+                  </div>
+                ) : (
+                  <>
+                    <div className="max-h-80 overflow-auto rounded-lg border">
+                      <table className="w-full min-w-[620px] text-sm">
                     <thead className="sticky top-0 bg-muted/95 text-left text-xs text-muted-foreground">
                       <tr>
                         <th className="px-3 py-2 font-medium">Observed</th>
@@ -139,7 +228,7 @@ export function IndicatorsExplorer({ indicators }: { indicators: Indicator[] }) 
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {[...selected.observations].reverse().map((observation) => (
+                      {[...visibleObservations].reverse().map((observation) => (
                         <tr key={observation.id}>
                           <td className="px-3 py-2">{formatTimestamp(observation.observedAt)}</td>
                           <td className="px-3 py-2 text-right font-mono">{formatNumber(observation.value)}</td>
@@ -156,8 +245,16 @@ export function IndicatorsExplorer({ indicators }: { indicators: Indicator[] }) 
                         </tr>
                       ))}
                     </tbody>
-                  </table>
-                </div>
+                      </table>
+                    </div>
+                    {selected.observations.length > OBSERVATION_TABLE_LIMIT && (
+                      <p className="mt-2 text-right text-xs text-muted-foreground">
+                        Showing the latest {OBSERVATION_TABLE_LIMIT.toLocaleString()} of{" "}
+                        {selected.observations.length.toLocaleString()} observations.
+                      </p>
+                    )}
+                  </>
+                )}
               </TabsContent>
               <TabsContent value="metadata" className="pt-4">
                 <dl className="grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm sm:grid-cols-2">
@@ -187,7 +284,7 @@ export function IndicatorsExplorer({ indicators }: { indicators: Indicator[] }) 
         <div className="grid gap-3 sm:grid-cols-3">
           <Card size="sm"><CardContent><p className="text-xs text-muted-foreground">Latest value</p><p className="mt-1 font-mono text-lg font-semibold">{formatNumber(selected.latest?.value ?? null)}</p></CardContent></Card>
           <Card size="sm"><CardContent><p className="text-xs text-muted-foreground">Daily change</p><p className="mt-1 font-mono text-lg font-semibold">{formatSigned(selected.change)}</p></CardContent></Card>
-          <Card size="sm"><CardContent><p className="text-xs text-muted-foreground">Data points</p><p className="mt-1 flex items-center gap-2 text-lg font-semibold"><Database className="size-4" />{selected.observations.length}</p></CardContent></Card>
+          <Card size="sm"><CardContent><p className="text-xs text-muted-foreground">Data points</p><p className="mt-1 flex items-center gap-2 text-lg font-semibold"><Database className="size-4" />{isLoading ? "Loading…" : selected.observations.length.toLocaleString()}</p></CardContent></Card>
         </div>
       </div>
     </div>

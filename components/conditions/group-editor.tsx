@@ -45,7 +45,8 @@ export function GroupEditor({
     <div
       className={cn(
         "min-w-0 rounded-xl border p-3 sm:p-4",
-        isRoot ? "bg-muted/30" : "bg-background shadow-xs",
+        depth % 2 === 0 ? "bg-background" : "bg-muted/30",
+        !isRoot && "shadow-xs",
         depth > 0 && "border-l-4 border-l-foreground/25"
       )}
     >

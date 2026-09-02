@@ -26,14 +26,18 @@ import { getRecentAlerts } from "@/lib/repositories/alerts"
 import { getConditionTrees } from "@/lib/repositories/conditions"
 import { getIndicators } from "@/lib/repositories/indicators"
 import { evaluateCondition } from "@/lib/rules/engine"
+import { getObservationRequirements } from "@/lib/rules/observation-requirements"
 
 export default async function DashboardPage() {
   await connection()
-  const [indicators, conditions, alerts] = await Promise.all([
-    getIndicators(),
+  const [conditions, alerts] = await Promise.all([
     getConditionTrees(),
     getRecentAlerts(),
   ])
+  const indicators = await getIndicators({
+    defaultObservationLimit: 2,
+    observationLimits: getObservationRequirements(conditions),
+  })
   const summaries = indicators.map(summarizeIndicator)
   const observations = groupObservationsByIndicator(indicators)
   const activeConditions = conditions

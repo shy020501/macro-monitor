@@ -1,19 +1,25 @@
 import { loadEnvConfig } from "@next/env"
 import { createClient } from "@supabase/supabase-js"
 
-import {
-  DEFAULT_FRED_INDICATOR_SYMBOLS,
-  FRED_SERIES_MAPPINGS,
-  FredClient,
-  FredTimeSeriesProvider,
-  getFredApiKey,
-  getFredSeriesMapping,
-} from "@/lib/data-providers/fred"
-import {
-  syncFredIndicator,
-  type FredObservationSyncResult,
-} from "@/lib/ingestion/fred-sync"
+import { createMarketProviderRegistry } from "@/lib/data-providers/market"
+import { syncMarketIndicator } from "@/lib/ingestion/market-sync"
+import type { MarketObservationSyncResult } from "@/lib/ingestion/market-sync"
 import { createSupabaseObservationIngestionStore } from "@/lib/repositories/observations"
+
+const DEFAULT_MARKET_INDICATORS = [
+  "DXY",
+  "US10Y",
+  "SP500",
+  "NASDAQ",
+  "VIX",
+  "KOSPI",
+  "KOSDAQ",
+  "WTI",
+  "COPPER",
+  "USDKRW",
+  "USDJPY",
+  "GOLD",
+] as const
 
 interface CliOptions {
   indicator?: string
@@ -35,7 +41,6 @@ function parseArguments(args: string[]): CliOptions {
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]
-
     if (argument === "--help" || argument === "-h") {
       options.help = true
     } else if (argument === "--indicator") {
@@ -63,27 +68,29 @@ function parseArguments(args: string[]): CliOptions {
 
 function printUsage(): void {
   console.log(`Usage:
-  pnpm sync:fred
-  pnpm sync:fred --indicator CPI
-  pnpm sync:fred --indicator US2Y --start 2020-01-01 --end 2026-09-02
+  pnpm sync:market
+  pnpm sync:market --indicator DXY
+  pnpm sync:market --indicator GOLD --start 2020-01-01 --end 2026-09-02
 
 Options:
-  --indicator  Sync one verified FRED indicator (default: all fifteen)
+  --indicator  Sync one configured market indicator (default: all twelve)
   --start      Override incremental start date, in YYYY-MM-DD
   --end        Optional inclusive end date, in YYYY-MM-DD
-  --help       Show this help`)
+  --help       Show this help
+
+Only daily (1d) sync is currently enabled. Yahoo-backed indicators need Python
+and yfinance; GOLD additionally needs ALPHA_VANTAGE_API_KEY.`)
 }
 
 function requiredEnvironmentValue(name: string): string {
   const value = process.env[name]?.trim()
-  if (!value) {
-    throw new Error(`${name} is not configured in .env.local.`)
-  }
+  if (!value) throw new Error(`${name} is not configured in .env.local.`)
   return value
 }
 
-function printResult(result: FredObservationSyncResult): void {
-  console.log(`\n${result.indicator} (${result.providerSeriesId})`)
+function printResult(result: MarketObservationSyncResult): void {
+  console.log(`\n${result.indicator} (${result.providerSymbol})`)
+  console.log(`Provider: ${result.provider}`)
   console.log(`Range: ${result.from} to ${result.to ?? "latest"}`)
   console.log(`Fetched: ${result.fetched}`)
   console.log(`Valid: ${result.valid}`)
@@ -94,56 +101,41 @@ function printResult(result: FredObservationSyncResult): void {
 async function main(): Promise<void> {
   loadEnvConfig(process.cwd())
   const options = parseArguments(process.argv.slice(2))
-
   if (options.help) {
     printUsage()
     return
   }
 
+  const providers = createMarketProviderRegistry()
+  const supabase = createClient(
+    requiredEnvironmentValue("SUPABASE_URL"),
+    requiredEnvironmentValue("SUPABASE_SERVICE_ROLE_KEY"),
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+  const store = createSupabaseObservationIngestionStore(supabase)
   const symbols = options.indicator
     ? [options.indicator.trim().toUpperCase()]
-    : [...DEFAULT_FRED_INDICATOR_SYMBOLS]
-
-  for (const symbol of symbols) {
-    if (!getFredSeriesMapping(symbol)) {
-      throw new Error(
-        `${symbol} is not FRED-enabled. Verified symbols: ${FRED_SERIES_MAPPINGS.map((mapping) => mapping.indicatorSymbol).join(", ")}`
-      )
-    }
-  }
-
-  // Read server-only secrets only after argument validation. Neither value is
-  // included in structured results or console output.
-  const apiKey = getFredApiKey()
-  const supabaseUrl = requiredEnvironmentValue("SUPABASE_URL")
-  const serviceRoleKey = requiredEnvironmentValue(
-    "SUPABASE_SERVICE_ROLE_KEY"
-  )
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-  const store = createSupabaseObservationIngestionStore(supabase)
-  const provider = new FredTimeSeriesProvider(new FredClient({ apiKey }))
+    : [...DEFAULT_MARKET_INDICATORS]
 
   let failures = 0
   for (const symbol of symbols) {
     try {
       const indicator = await store.getIndicatorBySymbol(symbol)
       if (!indicator) throw new Error(`Indicator ${symbol} was not found.`)
-
-      const result = await syncFredIndicator(
+      const result = await syncMarketIndicator(
         {
           indicatorId: indicator.id,
           startDate: options.startDate,
           endDate: options.endDate,
+          interval: "1d",
         },
-        { store, provider }
+        { store, providers }
       )
       printResult(result)
     } catch (error) {
       failures += 1
       console.error(
-        `\n${symbol}: ${error instanceof Error ? error.message : "Unknown sync error"}`
+        `\n${symbol}: ${error instanceof Error ? error.message : "Unknown market sync error"}`
       )
     }
   }
@@ -152,6 +144,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : "FRED sync failed.")
+  console.error(error instanceof Error ? error.message : "Market sync failed.")
   process.exitCode = 1
 })

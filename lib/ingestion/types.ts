@@ -19,9 +19,15 @@ export interface StoredObservationRecord {
   metadata: JsonObject
 }
 
-export interface PointObservationWrite {
+export interface ObservationWrite {
   observedAt: string
   value: number
+  open: number | null
+  high: number | null
+  low: number | null
+  close: number | null
+  volume: number | null
+  buyVolume: number | null
   metadata: JsonObject
 }
 
@@ -33,14 +39,18 @@ export interface ObservationIngestionStore {
     indicatorId: string,
     observedAts: string[]
   ): Promise<StoredObservationRecord[]>
-  upsertPointObservations(
+  upsertObservations(
     indicatorId: string,
-    observations: PointObservationWrite[]
+    observations: ObservationWrite[]
+  ): Promise<void>
+  deleteObservationsExceptProvider(
+    indicatorId: string,
+    provider: string
   ): Promise<void>
   updateIndicatorProvider(
     indicator: IngestionIndicator,
     provider: string,
-    providerSeriesId: string
+    providerMetadata: JsonObject
   ): Promise<void>
 }
 
@@ -48,7 +58,7 @@ export interface ObservationSyncResult {
   indicator: string
   indicatorId: string
   provider: string
-  providerSeriesId: string
+  providerInstrumentId: string
   fetched: number
   valid: number
   upserted: number

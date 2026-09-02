@@ -9,7 +9,9 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "sync:fred": "tsx scripts/sync-fred.ts"
+    "setup:market": "python -m pip install -r requirements-market.txt",
+    "sync:fred": "tsx scripts/sync-fred.ts",
+    "sync:market": "tsx scripts/sync-market.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

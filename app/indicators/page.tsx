@@ -6,7 +6,9 @@ import { getIndicators } from "@/lib/repositories/indicators"
 
 export default async function IndicatorsPage() {
   await connection()
-  const indicators = await getIndicators()
+  // The selected series loads its complete history on demand in the explorer.
+  // Only two points per series are needed for the initial list summaries.
+  const indicators = await getIndicators({ defaultObservationLimit: 2 })
 
   return (
     <div className="space-y-6">

@@ -4,7 +4,7 @@ import type { JsonObject } from "@/lib/domain/indicators"
 import type {
   IngestionIndicator,
   ObservationIngestionStore,
-  PointObservationWrite,
+  ObservationWrite,
   StoredObservationRecord,
 } from "@/lib/ingestion/types"
 
@@ -130,20 +130,18 @@ export function createSupabaseObservationIngestionStore(
       return records
     },
 
-    async upsertPointObservations(indicatorId, observations) {
+    async upsertObservations(indicatorId, observations) {
       for (const batch of chunks(observations, WRITE_BATCH_SIZE)) {
-        const rows = batch.map((observation: PointObservationWrite) => ({
+        const rows = batch.map((observation: ObservationWrite) => ({
           indicator_id: indicatorId,
           observed_at: observation.observedAt,
           value: observation.value,
-          // FRED supplies point values, not OHLC. Nulling all four fields also
-          // prevents a replaced mock candle from retaining stale OHLC data.
-          open_value: null,
-          high_value: null,
-          low_value: null,
-          close_value: null,
-          volume: null,
-          buy_volume: null,
+          open_value: observation.open,
+          high_value: observation.high,
+          low_value: observation.low,
+          close_value: observation.close,
+          volume: observation.volume,
+          buy_volume: observation.buyVolume,
           metadata: observation.metadata,
         }))
 
@@ -155,15 +153,33 @@ export function createSupabaseObservationIngestionStore(
       }
     },
 
-    async updateIndicatorProvider(indicator, provider, providerSeriesId) {
+    async deleteObservationsExceptProvider(indicatorId, provider) {
+      const mismatched = await supabase
+        .from("observations")
+        .delete()
+        .eq("indicator_id", indicatorId)
+        .neq("metadata->>provider", provider)
+      if (mismatched.error) throw new Error(mismatched.error.message)
+
+      const missingProvenance = await supabase
+        .from("observations")
+        .delete()
+        .eq("indicator_id", indicatorId)
+        .is("metadata->>provider", null)
+      if (missingProvenance.error) {
+        throw new Error(missingProvenance.error.message)
+      }
+    },
+
+    async updateIndicatorProvider(indicator, provider, providerMetadata) {
       const result = await supabase
         .from("indicators")
         .update({
           source: provider,
           metadata: {
             ...indicator.metadata,
+            ...providerMetadata,
             provider,
-            provider_series_id: providerSeriesId,
           },
         })
         .eq("id", indicator.id)

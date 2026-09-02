@@ -6,14 +6,15 @@ import type {
   TimeSeriesProvider,
 } from "@/lib/data-providers/types"
 import {
+  ActiveProviderMismatchError,
   InvalidSyncRangeError,
   UnmappedIndicatorError,
   syncFredIndicator,
 } from "@/lib/ingestion/fred-sync"
 import type {
   IngestionIndicator,
+  ObservationWrite,
   ObservationIngestionStore,
-  PointObservationWrite,
   StoredObservationRecord,
 } from "@/lib/ingestion/types"
 
@@ -26,6 +27,9 @@ const US10Y: IngestionIndicator = {
 
 class FakeProvider implements TimeSeriesProvider {
   readonly id = "fred"
+  readonly kind = "economic" as const
+  readonly instrumentMetadataKey = "provider_series_id"
+  readonly capabilities = ["daily"] as const
   readonly requests: FetchObservationsInput[] = []
 
   constructor(private readonly batch: ObservationBatch) {}
@@ -93,27 +97,33 @@ class MemoryStore implements ObservationIngestionStore {
     })
   }
 
-  async upsertPointObservations(
+  async upsertObservations(
     indicatorId: string,
-    observations: PointObservationWrite[]
+    observations: ObservationWrite[]
   ) {
     for (const observation of observations) {
-      this.seedObservation(indicatorId, {
-        ...observation,
-        open: null,
-        high: null,
-        low: null,
-        close: null,
-        volume: null,
-        buyVolume: null,
-      })
+      this.seedObservation(indicatorId, observation)
+    }
+  }
+
+  async deleteObservationsExceptProvider(
+    indicatorId: string,
+    provider: string
+  ) {
+    for (const [key, observation] of this.observations) {
+      if (
+        key.startsWith(`${indicatorId}|`) &&
+        observation.metadata.provider !== provider
+      ) {
+        this.observations.delete(key)
+      }
     }
   }
 
   async updateIndicatorProvider(
     indicator: IngestionIndicator,
     provider: string,
-    providerSeriesId: string
+    providerMetadata: Record<string, unknown>
   ) {
     this.providerUpdates += 1
     this.indicators.set(indicator.id, {
@@ -121,8 +131,8 @@ class MemoryStore implements ObservationIngestionStore {
       source: provider,
       metadata: {
         ...indicator.metadata,
+        ...providerMetadata,
         provider,
-        provider_series_id: providerSeriesId,
       },
     })
   }
@@ -231,6 +241,28 @@ describe("syncFredIndicator", () => {
         { store, provider }
       )
     ).rejects.toBeInstanceOf(UnmappedIndicatorError)
+    expect(provider.requests).toHaveLength(0)
+  })
+
+  it("rejects a market-active indicator even when its symbol has a FRED mapping", async () => {
+    const marketSp500: IngestionIndicator = {
+      id: "indicator-market-sp500",
+      symbol: "SP500",
+      source: "mock_market",
+      metadata: {
+        provider: "mock_market",
+        provider_symbol: "MOCK:SP500",
+      },
+    }
+    const store = new MemoryStore([marketSp500])
+    const provider = new FakeProvider(fredBatch())
+
+    await expect(
+      syncFredIndicator(
+        { indicatorId: marketSp500.id, startDate: "2026-08-01" },
+        { store, provider }
+      )
+    ).rejects.toBeInstanceOf(ActiveProviderMismatchError)
     expect(provider.requests).toHaveLength(0)
   })
 

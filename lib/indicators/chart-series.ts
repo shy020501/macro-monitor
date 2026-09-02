@@ -14,6 +14,8 @@ export const CHART_INTERVALS = [
 
 export type ChartInterval = (typeof CHART_INTERVALS)[number]
 
+export const TEMPORARY_MINIMUM_CHART_INTERVAL: ChartInterval = "1D"
+
 /**
  * Keep a consistent visual density across intervals. 240 daily points are
  * roughly one trading year; the same count naturally expands weekly/monthly
@@ -84,11 +86,24 @@ function minimumIntervalForIndicator(indicator: Indicator): ChartInterval {
 export function getSupportedChartIntervals(
   indicator: Indicator
 ): Set<ChartInterval> {
-  const minimum = minimumIntervalForIndicator(indicator)
+  const providerMinimum = minimumIntervalForIndicator(indicator)
+  const minimum =
+    intervalOrder[providerMinimum] >
+    intervalOrder[TEMPORARY_MINIMUM_CHART_INTERVAL]
+      ? providerMinimum
+      : TEMPORARY_MINIMUM_CHART_INTERVAL
   return new Set(
     CHART_INTERVALS.filter(
       (interval) => intervalOrder[interval] >= intervalOrder[minimum]
     )
+  )
+}
+
+export function isTemporarilyDisabledChartInterval(
+  interval: ChartInterval
+): boolean {
+  return (
+    intervalOrder[interval] < intervalOrder[TEMPORARY_MINIMUM_CHART_INTERVAL]
   )
 }
 

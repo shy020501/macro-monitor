@@ -126,5 +126,11 @@
   }
   html {
     @apply font-sans;
+    /*
+     * Keep the existing scale on laptop-sized displays, then grow the entire
+     * rem-based interface with larger viewports instead of leaving a tiny UI
+     * surrounded by unused space on high-resolution monitors.
+     */
+    font-size: clamp(16px, calc(12px + 0.25vw), 22px);
   }
 }

@@ -19,6 +19,7 @@ import {
   CHART_INTERVALS,
   DEFAULT_CHART_POINT_LIMIT,
   getSupportedChartIntervals,
+  isTemporarilyDisabledChartInterval,
   takeLatestChartPoints,
   type ChartInterval,
   type ChartPoint,
@@ -229,6 +230,8 @@ export function IndicatorChart({ indicator }: { indicator: Indicator }) {
         <div className="flex flex-wrap items-center gap-1">
           {CHART_INTERVALS.map((option) => {
             const supported = supportedIntervals.has(option)
+            const temporarilyDisabled =
+              isTemporarilyDisabledChartInterval(option)
             return (
               <Button
                 key={option}
@@ -240,7 +243,9 @@ export function IndicatorChart({ indicator }: { indicator: Indicator }) {
                 title={
                   supported
                     ? `Show ${option} observations`
-                    : `${option} is below this series' minimum interval`
+                    : temporarilyDisabled
+                      ? `${option} is temporarily disabled while market providers use daily data`
+                      : `${option} is below this series' minimum interval`
                 }
                 onClick={() => setInterval(option)}
               >

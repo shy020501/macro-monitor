@@ -8,6 +8,9 @@ import type {
 
 export class FredTimeSeriesProvider implements TimeSeriesProvider {
   readonly id = "fred"
+  readonly kind = "economic" as const
+  readonly instrumentMetadataKey = "provider_series_id"
+  readonly capabilities = ["daily"] as const
 
   constructor(private readonly client: FredObservationClient) {}
 
@@ -15,13 +18,13 @@ export class FredTimeSeriesProvider implements TimeSeriesProvider {
     input: FetchObservationsInput
   ): Promise<ObservationBatch> {
     const response = await this.client.fetchSeriesObservations({
-      seriesId: input.providerSeriesId,
+      seriesId: input.providerInstrumentId,
       startDate: input.startDate,
       endDate: input.endDate,
     })
     return normalizeFredObservations(
       response.observations,
-      input.providerSeriesId
+      input.providerInstrumentId
     )
   }
 }

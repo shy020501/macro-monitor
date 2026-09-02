@@ -5,13 +5,17 @@ import { Badge } from "@/components/ui/badge"
 import { groupObservationsByIndicator } from "@/lib/domain/indicators"
 import { getConditionTrees } from "@/lib/repositories/conditions"
 import { getIndicators } from "@/lib/repositories/indicators"
+import { getObservationRequirements } from "@/lib/rules/observation-requirements"
+
+const DEFAULT_BUILDER_OBSERVATION_LIMIT = 121
 
 export default async function ConditionsPage() {
   await connection()
-  const [conditions, indicators] = await Promise.all([
-    getConditionTrees(),
-    getIndicators(),
-  ])
+  const conditions = await getConditionTrees()
+  const indicators = await getIndicators({
+    defaultObservationLimit: DEFAULT_BUILDER_OBSERVATION_LIMIT,
+    observationLimits: getObservationRequirements(conditions),
+  })
 
   return (
     <div className="space-y-6">

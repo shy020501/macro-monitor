@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   CheckCircle2,
@@ -41,12 +41,21 @@ import type {
   IndicatorOption,
 } from "@/lib/domain/conditions"
 import { createConditionTree, validateConditionTree } from "@/lib/domain/conditions"
-import type { ObservationsByIndicator } from "@/lib/domain/indicators"
+import type {
+  Observation,
+  ObservationsByIndicator,
+} from "@/lib/domain/indicators"
 import { evaluateCondition } from "@/lib/rules/engine"
+import { getObservationRequirements } from "@/lib/rules/observation-requirements"
 import { cn } from "@/lib/utils"
 
 interface NamedIndicator extends IndicatorOption {
   name: string
+}
+
+interface ObservationResponse {
+  observations?: Observation[]
+  error?: string
 }
 
 function cloneTree(tree: ConditionTree): ConditionTree {
@@ -157,25 +166,81 @@ export function ConditionBuilder({
   const [draft, setDraft] = useState<ConditionTree | null>(() =>
     initialConditions[0] ? cloneTree(initialConditions[0]) : null
   )
+  const [availableObservations, setAvailableObservations] =
+    useState(observations)
+  const [observationLoadError, setObservationLoadError] = useState<
+    string | null
+  >(null)
   const [saveMessage, setSaveMessage] = useState<{ text: string } | null>(null)
+
+  const observationRequirements = useMemo(
+    () => getObservationRequirements(draft ? [...conditions, draft] : conditions),
+    [conditions, draft]
+  )
+  const observationRequirementKey = JSON.stringify(observationRequirements)
+
+  useEffect(() => {
+    const missing = Object.entries(observationRequirements).filter(
+      ([indicatorId, required]) =>
+        (availableObservations[indicatorId]?.length ?? 0) < required
+    )
+    if (missing.length === 0) return
+
+    const controller = new AbortController()
+
+    void Promise.all(
+      missing.map(async ([indicatorId, required]) => {
+        const response = await fetch(
+          `/api/indicators/${encodeURIComponent(indicatorId)}/observations?limit=${required}`,
+          { signal: controller.signal, cache: "no-store" }
+        )
+        const payload = (await response.json()) as ObservationResponse
+        if (!response.ok || !payload.observations) {
+          throw new Error(payload.error ?? "Unable to load rule observations.")
+        }
+        return [indicatorId, payload.observations] as const
+      })
+    )
+      .then((entries) => {
+        setObservationLoadError(null)
+        setAvailableObservations((current) => ({
+          ...current,
+          ...Object.fromEntries(entries),
+        }))
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setObservationLoadError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load rule observations."
+        )
+      })
+
+    return () => controller.abort()
+    // The serialized requirement map is the fetch trigger. Observation updates
+    // themselves must not repeat a request when a series has less history than
+    // a valid rule asks for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [observationRequirementKey])
 
   const validation = useMemo(
     () => (draft ? validateConditionTree(draft) : null),
     [draft]
   )
   const evaluation = useMemo(
-    () => (draft ? evaluateCondition(draft, observations) : null),
-    [draft, observations]
+    () => (draft ? evaluateCondition(draft, availableObservations) : null),
+    [availableObservations, draft]
   )
   const listEvaluations = useMemo(
     () =>
       new Map(
         conditions.map((condition) => [
           condition.id,
-          evaluateCondition(condition, observations),
+          evaluateCondition(condition, availableObservations),
         ])
       ),
-    [conditions, observations]
+    [availableObservations, conditions]
   )
   const firstIndicator = indicators[0]
 
@@ -252,7 +317,7 @@ export function ConditionBuilder({
 
   if (!draft || !validation || !evaluation) {
     return (
-      <div className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="grid gap-5 xl:grid-cols-[18.75rem_minmax(0,1fr)]">
         {sidebar}
 
         <Card className="min-h-80">
@@ -280,7 +345,7 @@ export function ConditionBuilder({
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+    <div className="grid gap-5 xl:grid-cols-[18.75rem_minmax(0,1fr)_22.5rem]">
       {sidebar}
 
       <div className="min-w-0 space-y-4">
@@ -393,6 +458,11 @@ export function ConditionBuilder({
           </div>
         </CardHeader>
         <CardContent>
+          {observationLoadError && (
+            <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              {observationLoadError}
+            </div>
+          )}
           <div className="mb-4 rounded-lg bg-muted p-3">
             <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><Sparkles className="size-3.5" />Human-readable condition</p>
             <p className="mt-2 text-sm leading-relaxed">{evaluation.description || "Add an enabled rule to describe this condition."}</p>

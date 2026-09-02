@@ -131,7 +131,7 @@ describe("getSupportedChartIntervals", () => {
     expect(supported.has("1M")).toBe(true)
   })
 
-  it("enables every interval for a one-minute market series", () => {
+  it("temporarily disables sub-daily intervals for market series", () => {
     const supported = getSupportedChartIntervals(
       indicator({
         source: "market",
@@ -140,7 +140,9 @@ describe("getSupportedChartIntervals", () => {
       })
     )
 
-    expect([...supported]).toHaveLength(9)
+    expect(supported.has("1m")).toBe(false)
+    expect(supported.has("5H")).toBe(false)
+    expect([...supported]).toEqual(["1D", "1W", "1M"])
   })
 })
 
