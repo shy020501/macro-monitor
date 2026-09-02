@@ -27,13 +27,18 @@ export async function getRecentAlerts(limit = 8): Promise<AlertRecord[]> {
       | Array<{ name: string }>
       | null
     const condition = Array.isArray(relation) ? relation[0] : relation
+    const payload = (row.payload ?? {}) as JsonObject
+    const snapshotName =
+      typeof payload.condition_name === "string"
+        ? payload.condition_name
+        : null
     return {
       id: row.id,
       conditionSetId: row.condition_set_id,
-      conditionName: condition?.name ?? null,
+      conditionName: condition?.name ?? snapshotName,
       triggeredAt: row.triggered_at,
       message: row.message,
-      payload: (row.payload ?? {}) as JsonObject,
+      payload,
     }
   })
 }

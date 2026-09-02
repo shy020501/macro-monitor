@@ -44,6 +44,25 @@ function collectNodeRequirements(
   }
 }
 
+function collectEnabledIndicatorIds(
+  node: ConditionNode,
+  indicatorIds: Set<string>
+): void {
+  if (node.kind === "group") {
+    node.children.forEach((child) =>
+      collectEnabledIndicatorIds(child, indicatorIds)
+    )
+  } else if (node.enabled) {
+    indicatorIds.add(node.indicatorId)
+  }
+}
+
+export function getConditionIndicatorIds(condition: ConditionTree): string[] {
+  const indicatorIds = new Set<string>()
+  collectEnabledIndicatorIds(condition.root, indicatorIds)
+  return [...indicatorIds]
+}
+
 export function getObservationRequirements(
   conditions: readonly ConditionTree[]
 ): Record<string, number> {

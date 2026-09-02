@@ -15,7 +15,7 @@ pnpm dev
 
 ## 데이터 Provider 설정
 
-현재 수동 동기화는 일봉(`1d`)만 활성화되어 있습니다. 차트의 `1m`~`5H` 구간도 임시 비활성화되어 `1D`, `1W`, `1M`만 선택할 수 있습니다. scheduler/cron은 아직 연결하지 않았습니다.
+현재 동기화는 일봉(`1d`)만 활성화되어 있습니다. 차트의 `1m`~`5H` 구간도 임시 비활성화되어 `1D`, `1W`, `1M`만 선택할 수 있습니다.
 
 | 지표 | Provider | 설정 |
 | --- | --- | --- |
@@ -51,12 +51,36 @@ pnpm sync:market --indicator GOLD
 
 주의: yfinance는 Yahoo Finance의 비공식 Python wrapper이며 개인 연구 용도에 맞춘 선택입니다. WTI는 원유 현물이 아니라 `CL=F` 근월물 선물입니다. GOLD만 Alpha Vantage의 XAU/USD 현물 계열을 사용해 선물과 구분합니다.
 
+## Monitoring과 로컬 Scheduler
+
+한 번의 monitoring cycle은 active provider 지표를 증분 sync한 뒤 enabled condition만 평가합니다. condition이 처음부터 true이거나 이전 false 상태에서 true로 바뀐 경우에만 `alerts` row를 생성합니다. sync/evaluation error는 기존 `last_matched`를 변경하지 않습니다.
+
+```powershell
+# 외부 sync + condition 평가 + transition/alert 처리
+pnpm monitor:run
+
+# 외부 API 호출 없이 현재 observations만 평가
+pnpm monitor:run -- --skip-sync
+
+# 평가 결과만 확인하고 alert/runtime state는 변경하지 않음
+pnpm monitor:run -- --skip-sync --dry-run
+
+# 즉시 한 번 실행한 뒤 기본 1시간 간격으로 반복
+pnpm monitor:watch
+```
+
+watch 간격은 `.env.local`의 `MONITOR_INTERVAL_MS`로 변경합니다. 기본값은 `3600000`(1시간), 허용되는 최소값은 `60000`(1분)입니다. 한 프로세스 안에서는 이전 cycle이 끝나기 전에 다음 cycle을 시작하지 않으며, 여러 프로세스가 동시에 실행되는 경우의 중복 alert는 PostgreSQL transition RPC의 row lock으로 방지합니다.
+
+condition의 rule/group 또는 enabled 상태를 변경하면 runtime state가 초기화됩니다. 이름이나 description만 바꾸면 기존 상태를 유지합니다. alert payload는 trigger 당시 condition tree, 축약된 evaluation 결과, indicator별 최신 timestamp를 snapshot으로 보존합니다.
+
 ## 검증
 
 ```powershell
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm test:monitoring:db
 pnpm build
+pnpm exec supabase db reset --local
 pnpm exec supabase db lint
 ```

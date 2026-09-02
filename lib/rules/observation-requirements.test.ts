@@ -5,6 +5,7 @@ import type {
   ConditionTree,
 } from "@/lib/domain/conditions"
 import {
+  getConditionIndicatorIds,
   getObservationRequirements,
   requiredObservationCount,
 } from "@/lib/rules/observation-requirements"
@@ -101,5 +102,6 @@ describe("observation requirements", () => {
     expect(getObservationRequirements(conditions)).toEqual({
       [indicatorA]: 10,
     })
+    expect(getConditionIndicatorIds(conditions[0])).toEqual([indicatorA])
   })
 })

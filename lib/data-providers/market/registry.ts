@@ -7,6 +7,7 @@ import {
 
 interface MarketProviderRegistryOptions {
   environment?: Record<string, string | undefined>
+  cwd?: string
 }
 
 export function createMarketProviderRegistry(
@@ -17,6 +18,7 @@ export function createMarketProviderRegistry(
     new YahooFinanceProvider(
       createPythonYFinanceBridgeRunner({
         pythonExecutable: environment.YFINANCE_PYTHON_PATH,
+        cwd: options.cwd,
       })
     ),
     new AlphaVantageGoldProvider({

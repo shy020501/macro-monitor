@@ -11,7 +11,10 @@
     "test": "vitest run",
     "setup:market": "python -m pip install -r requirements-market.txt",
     "sync:fred": "tsx scripts/sync-fred.ts",
-    "sync:market": "tsx scripts/sync-market.ts"
+    "sync:market": "tsx scripts/sync-market.ts",
+    "monitor:run": "tsx scripts/monitor-run.ts",
+    "monitor:watch": "tsx scripts/monitor-watch.ts",
+    "test:monitoring:db": "tsx scripts/test-monitoring-db.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
